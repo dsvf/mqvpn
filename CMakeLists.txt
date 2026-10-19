@@ -907,6 +907,8 @@ add_executable(mqvpn
     src/platform/linux/dns.c
     src/platform/posix/dns_common.c
     src/config.c
+    src/mqvpn_budget.c
+    src/budget_mgr.c
 )
 
 target_include_directories(mqvpn PRIVATE
@@ -989,6 +991,7 @@ if(BUILD_TESTING)
     add_executable(test_route_check tests/test_route_check.c src/platform/linux/route_check.c src/log.c)
     add_executable(test_flow_sched tests/test_flow_sched.c src/flow_sched.c src/log.c)
     add_executable(test_budget tests/test_budget.c src/mqvpn_budget.c)
+    add_executable(test_budget_mgr tests/test_budget_mgr.c src/budget_mgr.c src/mqvpn_budget.c)
     add_executable(test_path_label tests/test_path_label.c src/mqvpn_path_label.c src/log.c)
     add_executable(test_status tests/test_status.c)
     add_executable(test_path_rotation tests/test_path_rotation.c src/path_rotation.c)
@@ -1028,7 +1031,7 @@ if(BUILD_TESTING)
     add_executable(test_reorder_gate tests/test_reorder_gate.c src/reorder_tx.c src/icmp.c src/log.c)
     # Re-add decision shared by the desktop path monitors (header only).
     add_executable(test_path_readd tests/test_path_readd.c)
-    set(MQVPN_UNIT_TESTS test_config test_auth test_session test_dns test_route_check test_flow_sched test_budget test_path_label test_status test_path_rotation test_fec_reinj test_ciphers test_path_error_policy test_path_state_machine test_path_slot_oracle test_control_response_bound test_reorder_common test_reorder_tx test_reorder_rx test_reorder_config test_config_bridge test_classifier test_icmp test_reorder_gate test_path_readd)
+    set(MQVPN_UNIT_TESTS test_config test_auth test_session test_dns test_route_check test_flow_sched test_budget test_budget_mgr test_path_label test_status test_path_rotation test_fec_reinj test_ciphers test_path_error_policy test_path_state_machine test_path_slot_oracle test_control_response_bound test_reorder_common test_reorder_tx test_reorder_rx test_reorder_config test_config_bridge test_classifier test_icmp test_reorder_gate test_path_readd)
 
     # test_tcp_lane #include's BOTH src/hybrid/tcp_lane.c AND
     # src/hybrid/tcp_lane_uplink.c (Task 12 split the uplink relay out of
@@ -1200,7 +1203,8 @@ if(BUILD_TESTING)
     # reference event2; gated on libevent being available (Linux test builds
     # only, never Android).
     if(Libevent_FOUND OR EVENT_LIB)
-        add_executable(test_control_socket tests/test_control_socket.c src/reorder_rx.c)
+        add_executable(test_control_socket tests/test_control_socket.c src/reorder_rx.c
+            src/budget_mgr.c src/mqvpn_budget.c)
         target_include_directories(test_control_socket PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform/linux

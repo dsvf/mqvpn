@@ -24,6 +24,7 @@
 #include <event2/event.h>
 
 typedef struct platform_ctx platform_ctx_t;
+typedef struct mqvpn_budget_mgr_s mqvpn_budget_mgr_t;
 
 /* One platform path slot: the socket this platform owns for a configured
  * interface, the library incarnation registered on it, and the per-path
@@ -166,6 +167,11 @@ struct platform_ctx {
     /* Control API (linux/control_socket.c; forward-declared so this shared
      * header does not pull in the Linux-only control_socket.h) */
     struct ctrl_socket_s *ctrl;
+
+    /* Traffic shaping: metered-path budget manager (client, Linux). NULL when
+     * no metered roles are configured. Owned by the platform run loop. */
+    mqvpn_budget_mgr_t *budget;
+    char budget_state_file[280]; /* copy of cfg->budget_state_file, "" = none */
 
     /* Shutdown */
     int shutting_down;

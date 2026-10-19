@@ -381,6 +381,7 @@ Return per-client and per-path detail for all currently connected clients.
 |------------|---------|-------------------------------------|
 | `n_clients`| integer | Number of active client entries     |
 | `clients`  | array   | Per-client objects (see below)      |
+| `budget`   | array   | **Client mode only.** Metered-path budget state (see below). Absent in server mode. |
 
 **Client object**
 
@@ -417,6 +418,18 @@ Return per-client and per-path detail for all currently connected clients.
 > state, **not** the mqvpn scheduler's logical role (primary / standby / etc.).
 > Treat it as an opaque integer for diagnostic purposes; do not map it to
 > scheduler roles without consulting the xquic source.
+
+**Budget object** *(client mode only; one entry per metered `[Path]`)*
+
+| Field                 | Type   | Description |
+|-----------------------|--------|-------------|
+| `iface`               | string | Interface name of the metered path |
+| `metered`             | bool   | Always `true` for these entries |
+| `allowance_mb`        | uint64 | Monthly allowance in megabytes (`MonthlyAllowanceMB`) |
+| `used_bytes`          | uint64 | Sent bytes billed this period |
+| `remaining_bytes`     | uint64 | `allowance - used`, floor 0 |
+| `exhausted`           | bool   | `remaining_bytes == 0` (hard stop) |
+| `speed_boost_allowed` | bool   | Behind schedule: `used < 70% × (day/period × allowance)` — eligible for use-it-or-lose-it speed-boost |
 
 ---
 

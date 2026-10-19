@@ -2490,9 +2490,10 @@ test_ini_json_scalar_parity(void)
                       "ReinjectionSrttFactorPct = 150\n"
                       "ReinjectionHardDeadlineMs = 300\n"
                       "ReinjectionDeadlineLowerBoundMs = 10\n"
-                      "SyncPathLabels = false\n"
-                      "PushPathLabels = true\n"
-                      "[Reorder]\n"
+                       "SyncPathLabels = false\n"
+                       "PushPathLabels = true\n"
+                       "BudgetStateFile = /var/lib/mqvpn/budget.state\n"
+                       "[Reorder]\n"
                       "Enabled = on\n"
                       "MaxWaitMs = 55\n"
                       "CapPackets = 256\n"
@@ -2552,9 +2553,10 @@ test_ini_json_scalar_parity(void)
                        "\"reinjection_srtt_factor_pct\":150,"
                        "\"reinjection_hard_deadline_ms\":300,"
                        "\"reinjection_deadline_lower_bound_ms\":10,"
-                       "\"sync_path_labels\":false,"
-                       "\"push_path_labels\":true,"
-                       "\"reorder\":{"
+                        "\"sync_path_labels\":false,"
+                        "\"push_path_labels\":true,"
+                        "\"budget_state_file\":\"/var/lib/mqvpn/budget.state\","
+                        "\"reorder\":{"
                        "\"enabled\":\"on\","
                        "\"max_wait_ms\":55,"
                        "\"cap_packets\":256,"
@@ -2665,6 +2667,8 @@ test_ini_json_scalar_parity(void)
                   "parity reinjection_deadline_lower_bound_ms is non-default");
     ASSERT_EQ_INT(a.sync_path_labels, 0, "parity sync_path_labels is non-default");
     ASSERT_EQ_INT(a.push_path_labels, 1, "parity push_path_labels is non-default");
+    ASSERT_EQ_STR(a.budget_state_file, "/var/lib/mqvpn/budget.state",
+                  "parity budget_state_file is non-default");
     ASSERT_EQ_INT((int)a.reorder.max_flows, 77,
                   "parity reorder max_flows is non-default");
     ASSERT_EQ_INT((int)a.reorder.classify_window, 33,

@@ -134,26 +134,32 @@ one's acceptance criteria and verification are green.
 - [x] `tests/test_config.c` cases (677 pass incl. 48 new).
 - [x] `website/guide/configuration.md` (+ `ja/`) documented.
 
-### P1 — budget accounting + persistence (IN PROGRESS)
-- **P1a done:** pure accounting core — `src/mqvpn_budget.h/.c` (xquic-free):
-  period key/days math (ResetDay clamped to month length), the linear ramp
+### P1 — budget accounting + persistence (DONE)
+- **P1a — pure accounting core:** `src/mqvpn_budget.h/.c` (xquic-free): period
+  key/days math (ResetDay clamped to month length), the linear ramp
   (`used < 70% × (day_of_period/period_days × allowance)` → speed-boost
-  allowed), exhaustion, and the persisted-state wire format
-  (`mqvpn_budget_state_encode/_decode`). `tests/test_budget.c` (42 cases).
-- **P1b (needs the full build env — cmake/libevent/xquic submodule):**
-  - Persist state in the CLI: read/write one state line per metered path using
-    the encode/decode helpers; a `period` mismatch on load starts a fresh
-    period. Library stays sans-I/O (DD §1/§2).
-  - Feed `path_entry_t.bytes_tx` into `mqvpn_budget_assess()` on the client's
-    tick/status path; update the persisted line periodically and on shutdown.
-  - Surface `remaining`/`used`/`exhausted`/`speed_boost_allowed` in the control
-    API (`get_status` per-path) — additive fields only (OMR compat surface).
+  allowed), exhaustion, and the persisted-state wire format. `tests/test_budget.c`.
+- **P1b — CLI manager + persistence + control API:**
+  - `src/budget_mgr.h/.c` (CLI-side, does file I/O): owns the roles + per-path
+    state, folds a live `bytes_tx` snapshot into `used_bytes` (handling period
+    rollover and path-counter resets), persists to `<BudgetStateFile>` (atomic
+    write). `tests/test_budget_mgr.c`.
+  - `src/traffic_policy.h` — shared `mqvpn_path_role_t`/`mqvpn_route_cfg_t`
+    (moved out of `config.h` so `vpn_client.h` and the runtime share them).
+  - `[Multipath] BudgetStateFile` config key (INI + JSON) carries the state
+    path into `mqvpn_client_cfg_t` (`src/vpn_client.h`, `src/main.c`).
+  - `platform_linux.c` creates a `mqvpn_budget_mgr_t` on the run loop, loads
+    state at startup, folds `mqvpn_client_get_paths()` bytes_tx every
+    `STATUS_INTERVAL_SEC` (30 s), saves, and flushes on shutdown.
+  - `control_socket.c` `get_status` (client mode) now emits a `"budget":[...]`
+    array (`iface`, `allowance_mb`, `used_bytes`, `remaining_bytes`,
+    `exhausted`, `speed_boost_allowed`). Server mode shape unchanged (OMR
+    compat).
 - The Q5 slow-trigger override of the ramp is a scheduler concern (P2): the
-  budget module only reports `exhausted` (hard stop) and `speed_boost_allowed`
+  budget module reports `exhausted` (hard stop) and `speed_boost_allowed`
   (ramp); the scheduler combines `!exhausted && (speed_boost_allowed || slow)`.
-- Files: `src/mqvpn_budget.h/.c` (done), `src/vpn_client.h`,
-  `src/mqvpn_client.c`, `src/main.c` (state file), `src/platform/linux/control_socket.c`,
-  `tests/test_budget.c` (done).
+- Verification: full Debug/Release build green; `ctest` 60/60; new tests
+  `test_budget` (42) + `test_budget_mgr` (23); `test_config` 678.
 
 ### P2 — WLB policy layer in the xquic fork (upload)
 - Per-path policy fields (`metered`, `allowance_remaining`, `role_priority`,

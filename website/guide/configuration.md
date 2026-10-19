@@ -242,6 +242,7 @@ Enables the [Control API](#control-api), in both client and server mode. Disable
 | `FecScheme` | FEC scheme: `galois_calculation`, `packet_mask`, `reed_solomon` or `xor` | `reed_solomon` |
 | `SyncPathLabels` | Share per-path weight / DSCP mask between client and server. Client: announce its own values to the server. Server: adopt the values the client announces for its downlink. Either side set to `false` turns the sharing off | `true` |
 | `PushPathLabels` | Push a weight / DSCP mask pinned on the server down to the client, so it also governs the client's uplink. Server: send it. Client: accept it. Both sides must enable it | `false` |
+| `BudgetStateFile` | Client only. Where to persist metered-path budget state (see `[Path]`); the file stores the used bytes per metered path so they survive restarts. Empty = accounting runs in memory only and resets on restart | — |
 | `InitMaxPathId` | MP-QUIC draft-21 test knob: initial Maximum Path Identifier advertised in transport parameters (`1`–`4294967295`; `0` = xquic default `8`) | `0` |
 | `Reinjection` | Speculative duplication mode (`off`, `deadline`, `idle`, or `dgram`) | `off` |
 | `ReinjectionSrttFactorPct` | `deadline` mode: duplicate unacked packets older than factor × min_srtt, in percent (`100`–`1000`) | `110` |
@@ -466,6 +467,7 @@ JSON configs are flat (except the `reorder`, `hybrid` and `advanced` objects abo
 | `[Multipath]` `Scheduler`, `CC` / `CongestionControl`, `Path`, `BackupPath` | `scheduler`, `cc` / `congestion_control`, `paths` (array), `backup_paths` (array) |
 | `[Multipath]` `InitMaxPathId`, `Reinjection`, `ReinjectionSrttFactorPct`, `ReinjectionHardDeadlineMs`, `ReinjectionDeadlineLowerBoundMs` | `init_max_path_id`, `reinjection`, `reinjection_srtt_factor_pct`, `reinjection_hard_deadline_ms`, `reinjection_deadline_lower_bound_ms` |
 | `[Multipath]` `Fec` / `FecEnable`, `FecScheme`, `SyncPathLabels`, `PushPathLabels` | `fec` / `fec_enable`, `fec_scheme`, `sync_path_labels`, `push_path_labels` |
+| `[Multipath]` `BudgetStateFile` | `budget_state_file` |
 | `[Path]` `Iface`, `Metered`, `MonthlyAllowanceMB`, `ResetDay`, `Priority` | `path_roles` (array of objects: `iface`, `metered`, `monthly_allowance_mb`, `reset_day`, `priority`) |
 | `[Route]` `Dest`, `Action`, `Priority` | `routes` (array of objects: `dest`, `action`, `priority`) |
 

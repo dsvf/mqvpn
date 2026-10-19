@@ -16,11 +16,13 @@
 #include "platform_internal.h"
 #include "platform_linux.h"
 #include "control_socket.h"
+#include "budget_mgr.h"
 #include "log.h"
 #include "mqvpn_internal.h" /* mqvpn_config_apply_reorder (INI reorder bridge) */
 #include "netlink_mon.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <inttypes.h>
 
 #define STATUS_INTERVAL_SEC 30
@@ -412,6 +414,38 @@ status_log_cb(evutil_socket_t fd, short what, void *arg)
         LOG_INF("[STATUS]   path%d=%s srtt=%dms tx=%" PRIu64 " rx=%" PRIu64 " %s", i,
                 paths[i].name, paths[i].srtt_ms, paths[i].bytes_tx, paths[i].bytes_rx,
                 st_str);
+    }
+
+    /* Traffic shaping: fold each metered path's live bytes_tx into its budget
+     * and persist the state (best-effort; a failed write only loses this
+     * interval's accounting delta). */
+    if (p->budget) {
+        time_t t = time(NULL);
+        struct tm tmv;
+        mqvpn_budget_date_t now_date = {0, 0, 0};
+        if (localtime_r(&t, &tmv)) {
+            now_date.year = tmv.tm_year + 1900;
+            now_date.month = tmv.tm_mon + 1;
+            now_date.day = tmv.tm_mday;
+        }
+        for (int i = 0; i < p->budget->n_roles; i++) {
+            if (!p->budget->roles[i].metered) continue;
+            uint64_t tx = 0;
+            int found = 0;
+            for (int k = 0; k < n_paths; k++) {
+                if (strcmp(paths[k].name, p->budget->roles[i].iface) == 0) {
+                    tx = paths[k].bytes_tx;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) continue;
+            mqvpn_budget_assessment_t a;
+            mqvpn_budget_mgr_apply(p->budget, p->budget->roles[i].iface, tx, &now_date,
+                                   &a);
+        }
+        if (p->budget_state_file[0])
+            mqvpn_budget_mgr_save(p->budget, p->budget_state_file);
     }
 
     /* Re-arm timer */
@@ -847,6 +881,25 @@ linux_platform_run_client(const mqvpn_client_cfg_t *cfg)
     ctx.udp_gro = cfg->udp_gro;
     ctx.udp_gso = cfg->udp_gso;
 
+    /* Traffic shaping: metered-path budget manager (client-only). Created once
+     * here so both the periodic status timer and the control socket read the
+     * same instance on this event loop (no locking, DD §1). */
+    if (cfg->n_path_roles > 0) {
+        ctx.budget = calloc(1, sizeof(*ctx.budget));
+        if (ctx.budget) {
+            mqvpn_budget_mgr_init(ctx.budget, cfg->path_roles, cfg->n_path_roles);
+            if (cfg->budget_state_file) {
+                snprintf(ctx.budget_state_file, sizeof(ctx.budget_state_file), "%s",
+                         cfg->budget_state_file);
+                if (mqvpn_budget_mgr_load(ctx.budget, ctx.budget_state_file) == 0)
+                    LOG_INF("budget: loaded metered-path state from %s",
+                            ctx.budget_state_file);
+            }
+        } else {
+            LOG_WRN("budget: allocation failed; metered-path accounting disabled");
+        }
+    }
+
     /* Pre-set TUN name (save to tun_name_cfg too — survives TUN destroy/recreate) */
     if (cfg->tun_name) {
         snprintf(ctx.tun.name, sizeof(ctx.tun.name), "%s", cfg->tun_name);
@@ -1145,6 +1198,13 @@ cleanup:
      * destroy-time flush sends on them, and the library never closes them
      * itself. */
     platform_paths_close_all(&ctx);
+
+    if (ctx.budget) {
+        if (ctx.budget_state_file[0])
+            mqvpn_budget_mgr_save(ctx.budget, ctx.budget_state_file);
+        free(ctx.budget);
+        ctx.budget = NULL;
+    }
 
     if (ctx.eb) event_base_free(ctx.eb);
 

@@ -831,7 +831,7 @@ TEST(get_status_client_mode_not_connected)
     g_cli_info_rc = 0;
     char resp[4096];
     call_dispatch_client("{\"cmd\":\"get_status\"}", resp, sizeof(resp));
-    ASSERT_STR_EQ(resp, "{\"ok\":true,\"n_clients\":0,\"clients\":[]}");
+    ASSERT_STR_EQ(resp, "{\"ok\":true,\"n_clients\":0,\"clients\":[],\"budget\":[]}");
 }
 
 TEST(get_status_client_mode_connected_with_path)

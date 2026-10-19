@@ -9,6 +9,7 @@
 #include "libmqvpn.h"          /* for MQVPN_MAX_PATHS */
 #include "reorder.h"           /* mqvpn_reorder_config_t (INI [Reorder] bridge) */
 #include "hybrid/classifier.h" /* mqvpn_hybrid_config_t (INI [Hybrid] bridge) */
+#include "traffic_policy.h"    /* mqvpn_path_role_t ([Path] budget roles) */
 
 #define MQVPN_MAX_PATH_IFACES 8
 _Static_assert(MQVPN_MAX_PATH_IFACES == MQVPN_MAX_PATHS,
@@ -64,6 +65,12 @@ typedef struct mqvpn_client_cfg_s {
                                     * server-pushed weight/dscp_mask (MQVPN_CAPSULE_
                                     * PATH_LABEL_PUSH) into the matching local path; 0 =
                                     * ignore any such capsule received */
+    /* Traffic shaping: metered-path budget roles (client-only). */
+    mqvpn_path_role_t path_roles[MQVPN_CONFIG_MAX_PATH_ROLES];
+    int n_path_roles;
+    /* [Multipath] BudgetStateFile — where to persist budget state; NULL =
+     * accounting runs in memory only. */
+    const char *budget_state_file;
 } mqvpn_client_cfg_t;
 
 /* CLI → library config bridge (src/platform/client_config_bridge.c): forwards

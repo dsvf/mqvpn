@@ -237,6 +237,7 @@ JSON ではクライアント・サーバーとも `auth_key` を使います（
 | `FecScheme` | FEC 方式: `galois_calculation`, `packet_mask`, `reed_solomon`, `xor` のいずれか | `reed_solomon` |
 | `SyncPathLabels` | パスごとの weight / DSCP マスクをクライアントとサーバーで共有する。クライアント: 自分の値をサーバーに通知する。サーバー: クライアントが通知した値を下り方向に採用する。どちらか一方でも `false` にすると共有されない | `true` |
 | `PushPathLabels` | サーバー側で固定した weight / DSCP マスクをクライアントへ送り、クライアントの上り方向にも適用する。サーバー: 送信する。クライアント: 受け入れる。両側で有効にする必要がある | `false` |
+| `BudgetStateFile` | クライアントのみ。従量制パスの予算状態（`[Path]` 参照）の保存先。従量制パスごとの使用バイト数を保存し、再起動後も引き継ぎます。空の場合はメモリ上のみで集計し、再起動でリセットされます | — |
 | `InitMaxPathId` | MP-QUIC draft-21 テスト用ノブ: transport parameters で広告する初期 Maximum Path Identifier（`1`–`4294967295`、`0` = xquic デフォルト `8`） | `0` |
 | `Reinjection` | 投機的複製モード（`off`, `deadline`, `idle`, または `dgram`） | `off` |
 | `ReinjectionSrttFactorPct` | `deadline` モード: factor × min_srtt を超えた未 ACK パケットを複製、パーセント指定（`100`–`1000`） | `110` |
@@ -458,6 +459,7 @@ JSON の設定は（上記の `reorder`、`hybrid`、`advanced` オブジェク�
 | `[Multipath]` `Scheduler`, `CC` / `CongestionControl`, `Path`, `BackupPath` | `scheduler`, `cc` / `congestion_control`, `paths`（配列）, `backup_paths`（配列） |
 | `[Multipath]` `InitMaxPathId`, `Reinjection`, `ReinjectionSrttFactorPct`, `ReinjectionHardDeadlineMs`, `ReinjectionDeadlineLowerBoundMs` | `init_max_path_id`, `reinjection`, `reinjection_srtt_factor_pct`, `reinjection_hard_deadline_ms`, `reinjection_deadline_lower_bound_ms` |
 | `[Multipath]` `Fec` / `FecEnable`, `FecScheme`, `SyncPathLabels`, `PushPathLabels` | `fec` / `fec_enable`, `fec_scheme`, `sync_path_labels`, `push_path_labels` |
+| `[Multipath]` `BudgetStateFile` | `budget_state_file` |
 | `[Path]` `Iface`, `Metered`, `MonthlyAllowanceMB`, `ResetDay`, `Priority` | `path_roles`（オブジェクト配列: `iface`, `metered`, `monthly_allowance_mb`, `reset_day`, `priority`） |
 | `[Route]` `Dest`, `Action`, `Priority` | `routes`（オブジェクト配列: `dest`, `action`, `priority`） |
 

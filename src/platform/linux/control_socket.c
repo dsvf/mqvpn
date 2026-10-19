@@ -73,6 +73,7 @@
 
 #include "control_socket.h"
 #include "platform_internal.h"
+#include "budget_mgr.h"
 #include "json_mini.h"
 #include "log.h"
 
@@ -98,6 +99,7 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <sys/time.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -504,7 +506,41 @@ ctrl_cmd_get_status(const char *req, char *resp, size_t resp_len, ctrl_socket_t 
         APPEND("]}");
     }
 
-    APPEND("]}");
+    /* Traffic shaping (client mode): per-metered-path budget status. Read-only
+     * view of the budget manager the platform run loop shares with this event
+     * loop (updated by the periodic status timer, ≤ STATUS_INTERVAL_SEC stale).
+     * Client mode only — server get_status keeps its OMR-parsed shape. */
+    if (cli_ctx) {
+        APPEND("],\"budget\":[");
+        if (cli_ctx->budget) {
+            time_t t = time(NULL);
+            struct tm tmv;
+            mqvpn_budget_date_t now_date = {0, 0, 0};
+            if (localtime_r(&t, &tmv)) {
+                now_date.year = tmv.tm_year + 1900;
+                now_date.month = tmv.tm_mon + 1;
+                now_date.day = tmv.tm_mday;
+            }
+            int first = 1;
+            for (int i = 0; i < cli_ctx->budget->n_roles; i++) {
+                const mqvpn_path_role_t *r = &cli_ctx->budget->roles[i];
+                if (!r->metered) continue;
+                mqvpn_budget_assessment_t a;
+                mqvpn_budget_mgr_assess(cli_ctx->budget, r->iface, &now_date, &a);
+                if (!first) APPEND(",");
+                first = 0;
+                APPEND("{\"iface\":\"%s\",\"metered\":true,\"allowance_mb\":%llu,"
+                       "\"used_bytes\":%" PRIu64 ",\"remaining_bytes\":%" PRIu64 ","
+                       "\"exhausted\":%d,\"speed_boost_allowed\":%d}",
+                       r->iface, (unsigned long long)r->monthly_allowance_mb,
+                       a.used_bytes, a.remaining_bytes, a.exhausted,
+                       a.speed_boost_allowed);
+            }
+        }
+        APPEND("]}");
+    } else {
+        APPEND("]}");
+    }
 
 get_status_done:
 #undef APPEND

@@ -739,6 +739,7 @@ static const cfg_key_desc_t cfg_keys[] = {
     CFG_STR(SEC_MULTIPATH, "FecScheme", "fec_scheme", fec_scheme),
     CFG_BOOL(SEC_MULTIPATH, "SyncPathLabels", "sync_path_labels", sync_path_labels),
     CFG_BOOL(SEC_MULTIPATH, "PushPathLabels", "push_path_labels", push_path_labels),
+    CFG_STR(SEC_MULTIPATH, "BudgetStateFile", "budget_state_file", budget_state_file),
     /* [Reorder] — JSON side lives inside the bounded "reorder" object */
     {SEC_REORDER, "Enabled", "enabled", CFGK_REORDER_MODE, CFGK_OFF(reorder.mode), 0, 0,
      NULL, 0, 0, NULL},

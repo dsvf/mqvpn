@@ -18,6 +18,7 @@
 #include "reorder.h"           /* for embedded mqvpn_reorder_config_t (§16.1 INI) */
 #include "hybrid/classifier.h" /* for embedded mqvpn_hybrid_config_t ([Hybrid]) */
 #include "mqvpn_path_label.h"  /* for MQVPN_PATH_LABEL_IFACE_MAX (path_policy.iface cap) */
+#include "traffic_policy.h"    /* mqvpn_path_role_t / mqvpn_route_cfg_t ([Path]/[Route]) */
 
 #define MQVPN_CONFIG_MAX_PATHS 8
 #define MQVPN_CONFIG_MAX_DNS   4
@@ -46,32 +47,8 @@ typedef struct {
 /* Traffic-shaping policy (metered-path steering). One mqvpn_path_role_t
  * describes a normal [Multipath] Path's budget role, keyed by interface
  * name; an interface with no entry is unlimited (aggregate freely, i.e.
- * today's WLB behaviour). INI [Path] / JSON "path_roles". */
-#define MQVPN_CONFIG_MAX_PATH_ROLES MQVPN_CONFIG_MAX_PATHS
-#define MQVPN_CONFIG_MAX_ROUTES 64
-
-typedef struct {
-    char iface[32]; /* matches paths[][32] / backup_paths[][32] */
-    int  metered;   /* 1 = budgeted path (spend allowance deliberately) */
-    unsigned long long monthly_allowance_mb; /* 0 = no budget */
-    int  reset_day; /* calendar day of month the allowance resets, 1..31 */
-    int  priority;  /* optional engaged-share cap 0..100; 0 = auto (WLB) */
-} mqvpn_path_role_t;
-
-typedef enum {
-    MQVPN_ROUTE_ACTION_UNLIMITED = 0, /* force traffic to the unlimited path(s) */
-} mqvpn_route_action_t;
-
-typedef enum {
-    MQVPN_ROUTE_PRIORITY_NORMAL = 0,
-    MQVPN_ROUTE_PRIORITY_LOW = 1, /* yield to general traffic (background) */
-} mqvpn_route_priority_t;
-
-typedef struct {
-    mqvpn_cidr_entry_t cidr; /* parsed Dest (IP/CIDR) */
-    uint8_t action;          /* mqvpn_route_action_t */
-    uint8_t priority;        /* mqvpn_route_priority_t */
-} mqvpn_route_cfg_t;
+ * today's WLB behaviour). INI [Path] / JSON "path_roles".
+ * Types live in traffic_policy.h so the CLI runtime shares them. */
 
 typedef struct mqvpn_file_config_s {
     /* [Interface] — common */
@@ -149,11 +126,17 @@ typedef struct mqvpn_file_config_s {
     int n_path_policy;
 
     /* Traffic shaping: per-path budget roles ([Path] / "path_roles") and
-     * destination routes ([Route] / "routes"). Parse-only in this phase. */
+     * destination routes ([Route] / "routes"). Roles are consumed by the
+     * CLI-side budget manager; routes are parse-only until Phase 3. */
     mqvpn_path_role_t path_roles[MQVPN_CONFIG_MAX_PATH_ROLES];
     int n_path_roles;
     mqvpn_route_cfg_t routes[MQVPN_CONFIG_MAX_ROUTES];
     int n_routes;
+
+    /* [Multipath] BudgetStateFile — client-only: where the CLI persists
+     * metered-path budget state (one line per metered role). Empty = disabled
+     * (budget accounting runs in memory only, resets on restart). */
+    char budget_state_file[280];
 
     char reinjection[16];                    /* "off" | "deadline" | "idle" | "dgram" */
     int reinjection_srtt_factor_pct;         /* deadline mode only; [100,1000] */

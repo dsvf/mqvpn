@@ -814,6 +814,9 @@ main(int argc, char *argv[])
              * gates whether it adopts a server-pushed weight/dscp_mask
              * (mqvpn_client.c's process_capsules PATH_LABEL_PUSH handler). */
             .push_path_labels = eff_push_path_labels,
+            /* [Multipath] BudgetStateFile; NULL = in-memory accounting only. */
+            .budget_state_file = file_cfg.budget_state_file[0] ? file_cfg.budget_state_file
+                                                               : NULL,
         };
         for (int i = 0; i < n_paths; i++) {
             cfg.path_ifaces[i] = path_ifaces[i];
@@ -823,6 +826,11 @@ main(int argc, char *argv[])
         }
         for (int i = 0; i < n_dns; i++) {
             cfg.dns_servers[i] = dns_servers[i];
+        }
+        /* Traffic shaping: metered-path budget roles (client-only). */
+        cfg.n_path_roles = file_cfg.n_path_roles;
+        for (int i = 0; i < file_cfg.n_path_roles && i < MQVPN_CONFIG_MAX_PATH_ROLES; i++) {
+            cfg.path_roles[i] = file_cfg.path_roles[i];
         }
 #ifdef _WIN32
         return win_platform_run_client(&cfg);
