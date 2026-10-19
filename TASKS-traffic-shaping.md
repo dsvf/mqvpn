@@ -134,15 +134,26 @@ one's acceptance criteria and verification are green.
 - [x] `tests/test_config.c` cases (677 pass incl. 48 new).
 - [x] `website/guide/configuration.md` (+ `ja/`) documented.
 
-### P1 — budget accounting + persistence (next)
-- Track metered-path **sent bytes** per calendar period (`ResetDay`), persist
-  across restarts (CLI-owned state file; library stays sans-I/O per DD §1/§2).
-- Linear ramp: "spent < 70% of (elapsed_days/30 × allowance)" → budget allows
-  speed-boost usage. The Q5 slow-trigger overrides the ramp.
-- Surface `remaining`/`used`/`engaged` in the control API (additive fields).
-- Files: `src/config.c/.h` (already there), `src/vpn_client.h`,
-  `src/mqvpn_client.c`, `src/platform/posix/*` or `src/main.c` for the state
-  file; `src/platform/linux/control_socket.c` for status; `tests/`.
+### P1 — budget accounting + persistence (IN PROGRESS)
+- **P1a done:** pure accounting core — `src/mqvpn_budget.h/.c` (xquic-free):
+  period key/days math (ResetDay clamped to month length), the linear ramp
+  (`used < 70% × (day_of_period/period_days × allowance)` → speed-boost
+  allowed), exhaustion, and the persisted-state wire format
+  (`mqvpn_budget_state_encode/_decode`). `tests/test_budget.c` (42 cases).
+- **P1b (needs the full build env — cmake/libevent/xquic submodule):**
+  - Persist state in the CLI: read/write one state line per metered path using
+    the encode/decode helpers; a `period` mismatch on load starts a fresh
+    period. Library stays sans-I/O (DD §1/§2).
+  - Feed `path_entry_t.bytes_tx` into `mqvpn_budget_assess()` on the client's
+    tick/status path; update the persisted line periodically and on shutdown.
+  - Surface `remaining`/`used`/`exhausted`/`speed_boost_allowed` in the control
+    API (`get_status` per-path) — additive fields only (OMR compat surface).
+- The Q5 slow-trigger override of the ramp is a scheduler concern (P2): the
+  budget module only reports `exhausted` (hard stop) and `speed_boost_allowed`
+  (ramp); the scheduler combines `!exhausted && (speed_boost_allowed || slow)`.
+- Files: `src/mqvpn_budget.h/.c` (done), `src/vpn_client.h`,
+  `src/mqvpn_client.c`, `src/main.c` (state file), `src/platform/linux/control_socket.c`,
+  `tests/test_budget.c` (done).
 
 ### P2 — WLB policy layer in the xquic fork (upload)
 - Per-path policy fields (`metered`, `allowance_remaining`, `role_priority`,
