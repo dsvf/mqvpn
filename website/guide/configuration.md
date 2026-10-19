@@ -424,6 +424,32 @@ In JSON, the section is a `"hybrid"` object with snake_case keys (`enabled`, `tc
 
 In JSON, the section is an `"advanced"` object with snake_case keys (`recv_rate_limit`, `udp_gso`, `udp_gro`).
 
+### `[Path]` (repeatable)
+
+Assigns a traffic-shaping role to a normal `[Multipath] Path` interface. An interface with no `[Path]` entry is treated as unlimited and aggregates freely. Repeatable, one section per interface.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `Iface` | Interface name, matching a `[Multipath] Path` or `BackupPath` entry | — |
+| `Metered` | Whether this path carries a monthly data allowance and should be spent deliberately (`true` / `false`) | `false` |
+| `MonthlyAllowanceMB` | Monthly data allowance in megabytes for a metered path; `0` = no budget | `0` |
+| `ResetDay` | Calendar day of month the allowance resets (`1`–`31`) | `1` |
+| `Priority` | Optional cap on this path's share while it is engaged, as a percentage (`0`–`100`; `0` = automatic) | `0` |
+
+> Traffic-shaping roles are parsed and validated but are not yet enforced by the scheduler in this build; they are a forward-looking config surface.
+
+### `[Route]` (repeatable)
+
+Forces traffic to a given destination (IP or CIDR) through the unlimited path(s) only, optionally at a lower priority so it yields to other traffic. Repeatable, one section per destination.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `Dest` | Destination IP or CIDR (`a.b.c.d/n` or IPv6) | — |
+| `Action` | `unlimited` (force the unlimited path; only value today) | `unlimited` |
+| `Priority` | `normal` or `low` (`low` sends only when the unlimited path has no other backlog) | `normal` |
+
+> Like `[Path]`, `[Route]` rules are parsed and validated but not yet enforced in this build.
+
 ### JSON key names
 
 JSON configs are flat (except the `reorder`, `hybrid` and `advanced` objects above). The keys map to INI as follows:
@@ -440,8 +466,10 @@ JSON configs are flat (except the `reorder`, `hybrid` and `advanced` objects abo
 | `[Multipath]` `Scheduler`, `CC` / `CongestionControl`, `Path`, `BackupPath` | `scheduler`, `cc` / `congestion_control`, `paths` (array), `backup_paths` (array) |
 | `[Multipath]` `InitMaxPathId`, `Reinjection`, `ReinjectionSrttFactorPct`, `ReinjectionHardDeadlineMs`, `ReinjectionDeadlineLowerBoundMs` | `init_max_path_id`, `reinjection`, `reinjection_srtt_factor_pct`, `reinjection_hard_deadline_ms`, `reinjection_deadline_lower_bound_ms` |
 | `[Multipath]` `Fec` / `FecEnable`, `FecScheme`, `SyncPathLabels`, `PushPathLabels` | `fec` / `fec_enable`, `fec_scheme`, `sync_path_labels`, `push_path_labels` |
+| `[Path]` `Iface`, `Metered`, `MonthlyAllowanceMB`, `ResetDay`, `Priority` | `path_roles` (array of objects: `iface`, `metered`, `monthly_allowance_mb`, `reset_day`, `priority`) |
+| `[Route]` `Dest`, `Action`, `Priority` | `routes` (array of objects: `dest`, `action`, `priority`) |
 
-`mode` (`"client"` or `"server"`) exists only in JSON. Without it, `listen` implies server mode; an explicit `mode` always wins. `path_policy` (server-side persisted per-path weights) and `reorder_rules` are JSON-only arrays.
+`mode` (`"client"` or `"server"`) exists only in JSON. Without it, `listen` implies server mode; an explicit `mode` always wins. `path_policy` (server-side persisted per-path weights), `reorder_rules`, `path_roles` and `routes` are JSON-only arrays.
 
 ## MTU Guidelines
 

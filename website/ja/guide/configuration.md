@@ -416,6 +416,32 @@ JSON では `"hybrid"` オブジェクトに snake_case キーで指定します
 
 JSON では `"advanced"` オブジェクトに snake_case キーで指定します（`recv_rate_limit`, `udp_gso`, `udp_gro`）。
 
+### `[Path]`（繰り返し可）
+
+通常の `[Multipath] Path` インターフェースにトラフィック制御（traffic-shaping）のロールを割り当てます。`[Path]` エントリのないインターフェースは無制限（unlimited）として扱われ、通常どおり集約されます。インターフェースごとに 1 セクションずつ、繰り返し指定します。
+
+| キー | 説明 | デフォルト |
+|------|------|-----------|
+| `Iface` | `[Multipath] Path` または `BackupPath` に一致するインターフェース名 | — |
+| `Metered` | このパスが月間データ量上限（従量制）を持ち、計画的に消費すべきかどうか（`true` / `false`） | `false` |
+| `MonthlyAllowanceMB` | 従量制パスの月間データ量上限（メガバイト）。`0` = 上限なし | `0` |
+| `ResetDay` | データ量がリセットされる毎月の日付（`1`–`31`） | `1` |
+| `Priority` | このパスが稼働中のシェア上限（パーセント、`0`–`100`。`0` = 自動） | `0` |
+
+> トラフィック制御のロールはこのビルドでは解析・検証のみで、スケジューラによる強制はまだ実装されていません（先行した設定項目です）。
+
+### `[Route]`（繰り返し可）
+
+指定した宛先（IP または CIDR）へのトラフィックを、無制限（unlimited）のパスだけに強制的に流します。必要に応じて低優先度にし、他のトラフィックに譲ることもできます。宛先ごとに 1 セクションずつ、繰り返し指定します。
+
+| キー | 説明 | デフォルト |
+|------|------|-----------|
+| `Dest` | 宛先 IP または CIDR（`a.b.c.d/n` または IPv6） | — |
+| `Action` | `unlimited`（無制限パスへ強制。現在はこの値のみ） | `unlimited` |
+| `Priority` | `normal` または `low`（`low` は無制限パスに他の滞留がないときのみ送信） | `normal` |
+
+> `[Path]` と同様に、`[Route]` ルールもこのビルドでは解析・検証のみで強制はされていません。
+
 ### JSON のキー名
 
 JSON の設定は（上記の `reorder`、`hybrid`、`advanced` オブジェクトを除き）フラットな構造です。INI との対応は次のとおりです:
@@ -432,8 +458,10 @@ JSON の設定は（上記の `reorder`、`hybrid`、`advanced` オブジェク�
 | `[Multipath]` `Scheduler`, `CC` / `CongestionControl`, `Path`, `BackupPath` | `scheduler`, `cc` / `congestion_control`, `paths`（配列）, `backup_paths`（配列） |
 | `[Multipath]` `InitMaxPathId`, `Reinjection`, `ReinjectionSrttFactorPct`, `ReinjectionHardDeadlineMs`, `ReinjectionDeadlineLowerBoundMs` | `init_max_path_id`, `reinjection`, `reinjection_srtt_factor_pct`, `reinjection_hard_deadline_ms`, `reinjection_deadline_lower_bound_ms` |
 | `[Multipath]` `Fec` / `FecEnable`, `FecScheme`, `SyncPathLabels`, `PushPathLabels` | `fec` / `fec_enable`, `fec_scheme`, `sync_path_labels`, `push_path_labels` |
+| `[Path]` `Iface`, `Metered`, `MonthlyAllowanceMB`, `ResetDay`, `Priority` | `path_roles`（オブジェクト配列: `iface`, `metered`, `monthly_allowance_mb`, `reset_day`, `priority`） |
+| `[Route]` `Dest`, `Action`, `Priority` | `routes`（オブジェクト配列: `dest`, `action`, `priority`） |
 
-`mode`（`"client"` または `"server"`）は JSON のみのキーです。指定がなければ `listen` があるとサーバーモードになりますが、`mode` を明示した場合は常にそちらが優先されます。`path_policy`（サーバー側で永続化するパスごとの weight）と `reorder_rules` は JSON のみの配列です。
+`mode`（`"client"` または `"server"`）は JSON のみのキーです。指定がなければ `listen` があるとサーバーモードになりますが、`mode` を明示した場合は常にそちらが優先されます。`path_policy`（サーバー側で永続化するパスごとの weight）、`reorder_rules`、`path_roles`、`routes` は JSON のみの配列です。
 
 ## MTU ガイドライン
 

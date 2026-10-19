@@ -3056,6 +3056,156 @@ test_auth_user_plain_invalid_chars(void)
     ASSERT_EQ_STR(cfg.auth_username, "", "plain User with quote rejected");
 }
 
+/* ── Traffic-shaping policy: [Path] / path_roles, [Route] / routes ──────── */
+
+static void
+test_path_roles_default_empty(void)
+{
+    mqvpn_file_config_t cfg;
+    mqvpn_config_defaults(&cfg);
+    ASSERT_EQ_INT(cfg.n_path_roles, 0, "path_roles default empty");
+    ASSERT_EQ_INT(cfg.n_routes, 0, "routes default empty");
+}
+
+static void
+test_path_roles_ini_parse(void)
+{
+    mqvpn_file_config_t cfg;
+    int rc = load_ini(&cfg, "[Multipath]\n"
+                            "Path = eth0\n"
+                            "Path = wwan0\n"
+                            "[Path]\n"
+                            "Iface = wwan0\n"
+                            "Metered = true\n"
+                            "MonthlyAllowanceMB = 50000\n"
+                            "ResetDay = 1\n"
+                            "Priority = 50\n"
+                            "[Path]\n"
+                            "Iface = eth0\n"
+                            "Metered = false\n");
+    ASSERT_EQ_INT(rc, 0, "path_roles ini load ok");
+    ASSERT_EQ_INT(cfg.n_path_roles, 2, "2 path roles");
+    ASSERT_EQ_STR(cfg.path_roles[0].iface, "wwan0", "role[0] iface");
+    ASSERT_EQ_INT(cfg.path_roles[0].metered, 1, "role[0] metered");
+    ASSERT_EQ_ULL(cfg.path_roles[0].monthly_allowance_mb, 50000ULL,
+                  "role[0] allowance");
+    ASSERT_EQ_INT(cfg.path_roles[0].reset_day, 1, "role[0] reset_day");
+    ASSERT_EQ_INT(cfg.path_roles[0].priority, 50, "role[0] priority");
+    ASSERT_EQ_STR(cfg.path_roles[1].iface, "eth0", "role[1] iface");
+    ASSERT_EQ_INT(cfg.path_roles[1].metered, 0, "role[1] unmetered");
+    ASSERT_EQ_INT(cfg.path_roles[1].reset_day, 1, "role[1] reset_day default");
+}
+
+static void
+test_path_roles_json_parse(void)
+{
+    mqvpn_file_config_t cfg;
+    mqvpn_config_defaults(&cfg);
+    int rc = mqvpn_config_load_json_filecfg(
+        &cfg, "{\"path_roles\":["
+              "{\"iface\":\"wwan0\",\"metered\":true,\"monthly_allowance_mb\":30000,"
+              "\"reset_day\":15,\"priority\":30},"
+              "{\"iface\":\"eth0\"}"
+              "]}");
+    ASSERT_EQ_INT(rc, 0, "path_roles json load ok");
+    ASSERT_EQ_INT(cfg.n_path_roles, 2, "2 json path roles");
+    ASSERT_EQ_STR(cfg.path_roles[0].iface, "wwan0", "json role[0] iface");
+    ASSERT_EQ_INT(cfg.path_roles[0].metered, 1, "json role[0] metered");
+    ASSERT_EQ_ULL(cfg.path_roles[0].monthly_allowance_mb, 30000ULL,
+                  "json role[0] allowance");
+    ASSERT_EQ_INT(cfg.path_roles[0].reset_day, 15, "json role[0] reset_day");
+    ASSERT_EQ_INT(cfg.path_roles[0].priority, 30, "json role[0] priority");
+    ASSERT_EQ_STR(cfg.path_roles[1].iface, "eth0", "json role[1] iface");
+    ASSERT_EQ_INT(cfg.path_roles[1].metered, 0, "json role[1] unmetered default");
+}
+
+static void
+test_path_roles_invalid_ignored(void)
+{
+    mqvpn_file_config_t cfg;
+    int rc = load_ini(&cfg, "[Path]\n"
+                            "Iface = wwan0\n"
+                            "Metered = maybe\n"
+                            "MonthlyAllowanceMB = notanumber\n"
+                            "ResetDay = 42\n"
+                            "Priority = 999\n");
+    ASSERT_EQ_INT(rc, 0, "path_roles invalid values warn-only");
+    ASSERT_EQ_INT(cfg.n_path_roles, 1, "1 role despite invalid values");
+    ASSERT_EQ_STR(cfg.path_roles[0].iface, "wwan0", "iface still parsed");
+    ASSERT_EQ_INT(cfg.path_roles[0].metered, 0, "invalid metered keeps default");
+    ASSERT_EQ_ULL(cfg.path_roles[0].monthly_allowance_mb, 0ULL,
+                  "invalid allowance keeps default");
+    ASSERT_EQ_INT(cfg.path_roles[0].reset_day, 1, "invalid reset_day keeps default");
+    ASSERT_EQ_INT(cfg.path_roles[0].priority, 0, "invalid priority keeps default");
+}
+
+static void
+test_path_roles_max_cap(void)
+{
+    mqvpn_file_config_t cfg;
+    mqvpn_config_defaults(&cfg);
+    int rc = mqvpn_config_load_json_filecfg(
+        &cfg,
+        "{\"path_roles\":["
+        "{\"iface\":\"p0\"},{\"iface\":\"p1\"},{\"iface\":\"p2\"},{\"iface\":\"p3\"},"
+        "{\"iface\":\"p4\"},{\"iface\":\"p5\"},{\"iface\":\"p6\"},{\"iface\":\"p7\"},"
+        "{\"iface\":\"p8\"}"
+        "]}");
+    ASSERT_EQ_INT(rc, 0, "path_roles cap load ok");
+    ASSERT_EQ_INT(cfg.n_path_roles, MQVPN_CONFIG_MAX_PATH_ROLES, "path_roles capped");
+}
+
+static void
+test_routes_ini_parse(void)
+{
+    mqvpn_file_config_t cfg;
+    int rc = load_ini(&cfg, "[Route]\n"
+                            "Dest = 203.0.113.7/32\n"
+                            "Action = unlimited\n"
+                            "Priority = low\n"
+                            "[Route]\n"
+                            "Dest = 10.0.0.0/8\n");
+    ASSERT_EQ_INT(rc, 0, "routes ini load ok");
+    ASSERT_EQ_INT(cfg.n_routes, 2, "2 routes");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.family, 4, "route[0] family v4");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.prefix_len, 32, "route[0] prefix_len");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.net[0], 203, "route[0] net[0]");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.net[3], 7, "route[0] net[3]");
+    ASSERT_EQ_INT(cfg.routes[0].action, MQVPN_ROUTE_ACTION_UNLIMITED, "route[0] action");
+    ASSERT_EQ_INT(cfg.routes[0].priority, MQVPN_ROUTE_PRIORITY_LOW, "route[0] priority");
+    ASSERT_EQ_INT(cfg.routes[1].cidr.prefix_len, 8, "route[1] prefix_len");
+    ASSERT_EQ_INT(cfg.routes[1].priority, MQVPN_ROUTE_PRIORITY_NORMAL,
+                  "route[1] priority default");
+}
+
+static void
+test_routes_json_parse(void)
+{
+    mqvpn_file_config_t cfg;
+    mqvpn_config_defaults(&cfg);
+    int rc = mqvpn_config_load_json_filecfg(
+        &cfg, "{\"routes\":["
+              "{\"dest\":\"203.0.113.9/32\",\"action\":\"unlimited\",\"priority\":\"low\"}"
+              "]}");
+    ASSERT_EQ_INT(rc, 0, "routes json load ok");
+    ASSERT_EQ_INT(cfg.n_routes, 1, "1 json route");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.family, 4, "json route family");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.net[3], 9, "json route net[3]");
+    ASSERT_EQ_INT(cfg.routes[0].priority, MQVPN_ROUTE_PRIORITY_LOW, "json route priority");
+}
+
+static void
+test_routes_invalid_dest_ignored(void)
+{
+    mqvpn_file_config_t cfg;
+    int rc = load_ini(&cfg, "[Route]\n"
+                            "Dest = not-a-cidr\n"
+                            "Action = unlimited\n");
+    ASSERT_EQ_INT(rc, 0, "routes invalid dest warn-only");
+    ASSERT_EQ_INT(cfg.n_routes, 1, "route still added");
+    ASSERT_EQ_INT(cfg.routes[0].cidr.family, 0, "invalid dest leaves family unset");
+}
+
 int
 main(void)
 {
@@ -3223,6 +3373,16 @@ main(void)
     test_resolve_control_endpoint_ex();
     test_world_readable_secret_still_loads();
     test_auth_user_plain_invalid_chars();
+
+    /* traffic-shaping policy ([Path]/path_roles, [Route]/routes) */
+    test_path_roles_default_empty();
+    test_path_roles_ini_parse();
+    test_path_roles_json_parse();
+    test_path_roles_invalid_ignored();
+    test_path_roles_max_cap();
+    test_routes_ini_parse();
+    test_routes_json_parse();
+    test_routes_invalid_dest_ignored();
 
     printf("\n=== test_config: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

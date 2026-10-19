@@ -115,6 +115,8 @@ enum {
     SEC_REORDER,
     SEC_REORDER_RULE,
     SEC_HYBRID,
+    SEC_PATH,
+    SEC_ROUTE,
     SEC_ADVANCED,
 };
 
@@ -130,6 +132,8 @@ parse_section(const char *name)
     if (strcasecmp(name, "Reorder") == 0) return SEC_REORDER;
     if (strcasecmp(name, "ReorderRule") == 0) return SEC_REORDER_RULE;
     if (strcasecmp(name, "Hybrid") == 0) return SEC_HYBRID;
+    if (strcasecmp(name, "Path") == 0) return SEC_PATH;
+    if (strcasecmp(name, "Route") == 0) return SEC_ROUTE;
     if (strcasecmp(name, "Advanced") == 0) return SEC_ADVANCED;
     return -1;
 }
@@ -147,6 +151,8 @@ section_name(int section)
     case SEC_REORDER: return "Reorder";
     case SEC_REORDER_RULE: return "ReorderRule";
     case SEC_HYBRID: return "Hybrid";
+    case SEC_PATH: return "Path";
+    case SEC_ROUTE: return "Route";
     case SEC_ADVANCED: return "Advanced";
     default: return "?";
     }
@@ -467,6 +473,43 @@ reorder_rule_begin(mqvpn_file_config_t *cfg, int lineno, const char *path)
     r->proto = MQVPN_IPPROTO_UDP;       /* v1 default: UDP */
     r->profile = MQVPN_RPROF_QUIC_BULK; /* port stays 0 = match-any until Port= */
     cfg->reorder.n_rules++;
+    return 0;
+}
+
+/* Begin a new [Path] role slot: push a default-initialized role (unmetered,
+ * reset_day 1, priority auto) that subsequent Iface/Metered/… keys fill in.
+ * Mirrors [ReorderRule] / [Multipath] Path= cap handling. Returns 0 on
+ * success, -1 if the role cap is hit (already warned). */
+static int
+path_role_begin(mqvpn_file_config_t *cfg, int lineno, const char *path)
+{
+    if (cfg->n_path_roles >= MQVPN_CONFIG_MAX_PATH_ROLES) {
+        LOG_WRN("%s:%d: max %d path roles supported, ignoring [Path]", path,
+                lineno, MQVPN_CONFIG_MAX_PATH_ROLES);
+        return -1;
+    }
+    mqvpn_path_role_t *r = &cfg->path_roles[cfg->n_path_roles];
+    memset(r, 0, sizeof(*r));
+    r->reset_day = 1;
+    cfg->n_path_roles++;
+    return 0;
+}
+
+/* Begin a new [Route] rule slot with begin-time defaults (action unlimited,
+ * priority normal) that subsequent Dest/Action/Priority keys fill in. */
+static int
+route_begin(mqvpn_file_config_t *cfg, int lineno, const char *path)
+{
+    if (cfg->n_routes >= MQVPN_CONFIG_MAX_ROUTES) {
+        LOG_WRN("%s:%d: max %d routes supported, ignoring [Route]", path, lineno,
+                MQVPN_CONFIG_MAX_ROUTES);
+        return -1;
+    }
+    mqvpn_route_cfg_t *r = &cfg->routes[cfg->n_routes];
+    memset(r, 0, sizeof(*r));
+    r->action = MQVPN_ROUTE_ACTION_UNLIMITED;
+    r->priority = MQVPN_ROUTE_PRIORITY_NORMAL;
+    cfg->n_routes++;
     return 0;
 }
 
@@ -1177,6 +1220,167 @@ json_read_path_policy(mqvpn_file_config_t *cfg, const char *p)
     return (*p == ']') ? 0 : -1;
 }
 
+/* "path_roles" JSON array: [{"iface","metered"?,"monthly_allowance_mb"?,
+ * "reset_day"?,"priority"?}, ...] — per-path traffic-shaping budget roles
+ * (the JSON mirror of the INI [Path] section). Bounded-object-span parsing
+ * mirrors json_read_path_policy; an entry with no iface is kept (empty
+ * iface never matches a real path) but its other fields are still parsed,
+ * same as the INI [Path] slot push. */
+static int
+json_read_path_roles(mqvpn_file_config_t *cfg, const char *p)
+{
+    if (!cfg || !p || *p != '[') return -1;
+    p = json_skip_ws(p + 1);
+
+    while (*p && *p != ']') {
+        if (*p != '{') return -1;
+        const char *obj_end = json_object_end(p);
+        if (!obj_end) return -1;
+
+        if (cfg->n_path_roles >= MQVPN_CONFIG_MAX_PATH_ROLES) {
+            LOG_WRN("JSON: path_roles capped at %d entries; dropping extra",
+                    MQVPN_CONFIG_MAX_PATH_ROLES);
+        } else {
+            mqvpn_path_role_t entry;
+            memset(&entry, 0, sizeof(entry));
+            entry.reset_day = 1;
+
+            const char *iface_v = json_find_key_bounded(p, obj_end, "iface");
+            if (iface_v) {
+                char s[32];
+                if (json_read_string(iface_v, s, sizeof(s)) == 0) {
+                    if (strlen(s) >= sizeof(entry.iface))
+                        LOG_WRN("JSON: path_roles iface too long; ignoring iface");
+                    else
+                        mqvpn_copy_str(entry.iface, sizeof(entry.iface), s);
+                }
+            }
+
+            const char *metered_v = json_find_key_bounded(p, obj_end, "metered");
+            if (metered_v) {
+                int b = 0;
+                if (json_read_bool(metered_v, &b) < 0)
+                    LOG_WRN("JSON: path_roles metered must be a boolean; ignoring");
+                else
+                    entry.metered = b;
+            }
+
+            const char *allow_v = json_find_key_bounded(p, obj_end,
+                                                        "monthly_allowance_mb");
+            if (allow_v) {
+                uint64_t a = 0;
+                if (json_read_u64_strict(allow_v, &a) < 0)
+                    LOG_WRN("JSON: path_roles monthly_allowance_mb invalid; ignoring");
+                else
+                    entry.monthly_allowance_mb = a;
+            }
+
+            const char *reset_v = json_find_key_bounded(p, obj_end, "reset_day");
+            if (reset_v) {
+                int d = 0;
+                if (json_read_int_strict(reset_v, &d) < 0 || d < 1 || d > 31)
+                    LOG_WRN("JSON: path_roles reset_day must be 1-31; ignoring");
+                else
+                    entry.reset_day = d;
+            }
+
+            const char *prio_v = json_find_key_bounded(p, obj_end, "priority");
+            if (prio_v) {
+                int pr = 0;
+                if (json_read_int_strict(prio_v, &pr) < 0 || pr < 0 || pr > 100)
+                    LOG_WRN("JSON: path_roles priority must be 0-100; ignoring");
+                else
+                    entry.priority = pr;
+            }
+
+            cfg->path_roles[cfg->n_path_roles++] = entry;
+        }
+
+        p = json_skip_ws(obj_end + 1);
+        if (*p == ',')
+            p = json_skip_ws(p + 1);
+        else if (*p != ']')
+            return -1;
+    }
+
+    return (*p == ']') ? 0 : -1;
+}
+
+/* "routes" JSON array: [{"dest","action"?,"priority"?}, ...] — destination
+ * routing rules (the JSON mirror of the INI [Route] section). */
+static int
+json_read_routes(mqvpn_file_config_t *cfg, const char *p)
+{
+    if (!cfg || !p || *p != '[') return -1;
+    p = json_skip_ws(p + 1);
+
+    while (*p && *p != ']') {
+        if (*p != '{') return -1;
+        const char *obj_end = json_object_end(p);
+        if (!obj_end) return -1;
+
+        if (cfg->n_routes >= MQVPN_CONFIG_MAX_ROUTES) {
+            LOG_WRN("JSON: routes capped at %d entries; dropping extra",
+                    MQVPN_CONFIG_MAX_ROUTES);
+        } else {
+            mqvpn_route_cfg_t entry;
+            memset(&entry, 0, sizeof(entry));
+            entry.action = MQVPN_ROUTE_ACTION_UNLIMITED;
+            entry.priority = MQVPN_ROUTE_PRIORITY_NORMAL;
+
+            const char *dest_v = json_find_key_bounded(p, obj_end, "dest");
+            if (dest_v) {
+                char s[INET6_ADDRSTRLEN + 8];
+                if (json_read_string(dest_v, s, sizeof(s)) == 0) {
+                    mqvpn_cidr_entry_t e;
+                    if (mqvpn_parse_cidr(s, &e) < 0)
+                        LOG_WRN("JSON: invalid route dest '%s'; ignoring", s);
+                    else
+                        entry.cidr = e;
+                }
+            }
+
+            const char *action_v = json_find_key_bounded(p, obj_end, "action");
+            if (action_v) {
+                char s[32];
+                if (json_read_string(action_v, s, sizeof(s)) == 0) {
+                    if (strcasecmp(s, "unlimited") == 0)
+                        entry.action = MQVPN_ROUTE_ACTION_UNLIMITED;
+                    else
+                        LOG_WRN("JSON: invalid route action '%s' (only 'unlimited'); "
+                                "ignoring",
+                                s);
+                }
+            }
+
+            const char *prio_v = json_find_key_bounded(p, obj_end, "priority");
+            if (prio_v) {
+                char s[32];
+                if (json_read_string(prio_v, s, sizeof(s)) == 0) {
+                    if (strcasecmp(s, "low") == 0)
+                        entry.priority = MQVPN_ROUTE_PRIORITY_LOW;
+                    else if (strcasecmp(s, "normal") == 0)
+                        entry.priority = MQVPN_ROUTE_PRIORITY_NORMAL;
+                    else
+                        LOG_WRN("JSON: invalid route priority '%s' (normal|low); "
+                                "ignoring",
+                                s);
+                }
+            }
+
+            cfg->routes[cfg->n_routes++] = entry;
+        }
+
+        p = json_skip_ws(obj_end + 1);
+        if (*p == ',')
+            p = json_skip_ws(p + 1);
+        else if (*p != ']')
+            return -1;
+    }
+
+    return (*p == ']') ? 0 : -1;
+}
+
 /* Handle a key=value pair in the given section */
 static void
 handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *val,
@@ -1301,6 +1505,81 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
             return;
         }
         list[(*n)++] = entry;
+        return;
+    }
+    case SEC_PATH: {
+        /* Keys fill the role slot pushed by path_role_begin() on section
+         * entry; the n_path_roles==0 guard defends against a key arriving
+         * with no [Path] slot (mirrors [ReorderRule]). */
+        if (cfg->n_path_roles == 0) return;
+        mqvpn_path_role_t *r = &cfg->path_roles[cfg->n_path_roles - 1];
+        if (strcasecmp(key, "Iface") == 0) {
+            if (strlen(val) >= sizeof(r->iface))
+                LOG_WRN("%s:%d: [Path] Iface too long (max %zu bytes); ignoring",
+                        path, lineno, sizeof(r->iface) - 1);
+            else
+                snprintf(r->iface, sizeof(r->iface), "%s", val);
+        } else if (strcasecmp(key, "Metered") == 0) {
+            int b = parse_bool(val);
+            if (b < 0)
+                LOG_WRN("%s:%d: invalid [Path] Metered '%s'; ignoring", path, lineno,
+                        val);
+            else
+                r->metered = b;
+        } else if (strcasecmp(key, "MonthlyAllowanceMB") == 0) {
+            unsigned long long v = 0;
+            if (parse_u64_strict(val, &v) < 0)
+                LOG_WRN("%s:%d: invalid [Path] MonthlyAllowanceMB '%s'; ignoring",
+                        path, lineno, val);
+            else
+                r->monthly_allowance_mb = v;
+        } else if (strcasecmp(key, "ResetDay") == 0) {
+            int v = 0;
+            if (parse_int_strict(val, &v) < 0 || v < 1 || v > 31)
+                LOG_WRN("%s:%d: invalid [Path] ResetDay '%s' (1-31); ignoring", path,
+                        lineno, val);
+            else
+                r->reset_day = v;
+        } else if (strcasecmp(key, "Priority") == 0) {
+            int v = 0;
+            if (parse_int_strict(val, &v) < 0 || v < 0 || v > 100)
+                LOG_WRN("%s:%d: invalid [Path] Priority '%s' (0-100); ignoring", path,
+                        lineno, val);
+            else
+                r->priority = v;
+        } else {
+            LOG_WRN("%s:%d: unknown key '%s' in [Path]", path, lineno, key);
+        }
+        return;
+    }
+    case SEC_ROUTE: {
+        if (cfg->n_routes == 0) return;
+        mqvpn_route_cfg_t *r = &cfg->routes[cfg->n_routes - 1];
+        if (strcasecmp(key, "Dest") == 0) {
+            mqvpn_cidr_entry_t e;
+            if (mqvpn_parse_cidr(val, &e) < 0)
+                LOG_WRN("%s:%d: invalid [Route] Dest '%s'; ignoring", path, lineno,
+                        val);
+            else
+                r->cidr = e;
+        } else if (strcasecmp(key, "Action") == 0) {
+            if (strcasecmp(val, "unlimited") == 0)
+                r->action = MQVPN_ROUTE_ACTION_UNLIMITED;
+            else
+                LOG_WRN("%s:%d: invalid [Route] Action '%s' (only 'unlimited'); "
+                        "ignoring",
+                        path, lineno, val);
+        } else if (strcasecmp(key, "Priority") == 0) {
+            if (strcasecmp(val, "low") == 0)
+                r->priority = MQVPN_ROUTE_PRIORITY_LOW;
+            else if (strcasecmp(val, "normal") == 0)
+                r->priority = MQVPN_ROUTE_PRIORITY_NORMAL;
+            else
+                LOG_WRN("%s:%d: invalid [Route] Priority '%s' (normal|low); ignoring",
+                        path, lineno, val);
+        } else {
+            LOG_WRN("%s:%d: unknown key '%s' in [Route]", path, lineno, key);
+        }
         return;
     }
     case SEC_NONE:
@@ -1438,6 +1717,12 @@ mqvpn_config_load_json_filecfg(mqvpn_file_config_t *cfg, const char *json_text)
 
     v = json_find_key(json_text, "path_policy");
     if (v && json_read_path_policy(cfg, v) < 0) return -1;
+
+    v = json_find_key(json_text, "path_roles");
+    if (v && json_read_path_roles(cfg, v) < 0) return -1;
+
+    v = json_find_key(json_text, "routes");
+    if (v && json_read_routes(cfg, v) < 0) return -1;
 
     return 0;
 }
@@ -1662,6 +1947,14 @@ mqvpn_config_load(mqvpn_file_config_t *cfg, const char *path)
                      * keys fall through to SEC_NONE handling instead of writing
                      * to the last accepted rule slot. */
                     if (reorder_rule_begin(cfg, lineno, path) < 0) {
+                        section = SEC_NONE;
+                    }
+                } else if (section == SEC_PATH) {
+                    if (path_role_begin(cfg, lineno, path) < 0) {
+                        section = SEC_NONE;
+                    }
+                } else if (section == SEC_ROUTE) {
+                    if (route_begin(cfg, lineno, path) < 0) {
                         section = SEC_NONE;
                     }
                 }

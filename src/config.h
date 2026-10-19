@@ -43,6 +43,36 @@ typedef struct {
     uint64_t dscp_mask;
 } mqvpn_path_policy_t;
 
+/* Traffic-shaping policy (metered-path steering). One mqvpn_path_role_t
+ * describes a normal [Multipath] Path's budget role, keyed by interface
+ * name; an interface with no entry is unlimited (aggregate freely, i.e.
+ * today's WLB behaviour). INI [Path] / JSON "path_roles". */
+#define MQVPN_CONFIG_MAX_PATH_ROLES MQVPN_CONFIG_MAX_PATHS
+#define MQVPN_CONFIG_MAX_ROUTES 64
+
+typedef struct {
+    char iface[32]; /* matches paths[][32] / backup_paths[][32] */
+    int  metered;   /* 1 = budgeted path (spend allowance deliberately) */
+    unsigned long long monthly_allowance_mb; /* 0 = no budget */
+    int  reset_day; /* calendar day of month the allowance resets, 1..31 */
+    int  priority;  /* optional engaged-share cap 0..100; 0 = auto (WLB) */
+} mqvpn_path_role_t;
+
+typedef enum {
+    MQVPN_ROUTE_ACTION_UNLIMITED = 0, /* force traffic to the unlimited path(s) */
+} mqvpn_route_action_t;
+
+typedef enum {
+    MQVPN_ROUTE_PRIORITY_NORMAL = 0,
+    MQVPN_ROUTE_PRIORITY_LOW = 1, /* yield to general traffic (background) */
+} mqvpn_route_priority_t;
+
+typedef struct {
+    mqvpn_cidr_entry_t cidr; /* parsed Dest (IP/CIDR) */
+    uint8_t action;          /* mqvpn_route_action_t */
+    uint8_t priority;        /* mqvpn_route_priority_t */
+} mqvpn_route_cfg_t;
+
 typedef struct mqvpn_file_config_s {
     /* [Interface] — common */
     char tun_name[32];
@@ -117,6 +147,13 @@ typedef struct mqvpn_file_config_s {
      * see mqvpn_path_policy_t's doc comment above. */
     mqvpn_path_policy_t path_policy[MQVPN_CONFIG_MAX_PATH_POLICY];
     int n_path_policy;
+
+    /* Traffic shaping: per-path budget roles ([Path] / "path_roles") and
+     * destination routes ([Route] / "routes"). Parse-only in this phase. */
+    mqvpn_path_role_t path_roles[MQVPN_CONFIG_MAX_PATH_ROLES];
+    int n_path_roles;
+    mqvpn_route_cfg_t routes[MQVPN_CONFIG_MAX_ROUTES];
+    int n_routes;
 
     char reinjection[16];                    /* "off" | "deadline" | "idle" | "dgram" */
     int reinjection_srtt_factor_pct;         /* deadline mode only; [100,1000] */
